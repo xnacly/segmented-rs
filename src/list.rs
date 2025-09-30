@@ -1,13 +1,25 @@
-use std::mem::MaybeUninit;
-
 const BLOCK_COUNT: usize = 24;
 const START_SIZE: usize = 8;
 const LOG2_OF_START_SIZE: usize = 3;
 
 pub struct SegmentedList<T> {
     /// blocks grow by two on each newly allocated block, up until BLOCK_COUNT or something
-    blocks: [Option<Box<[MaybeUninit<T>]>>; BLOCK_COUNT],
+    blocks: [Option<Box<[std::mem::MaybeUninit<T>]>>; BLOCK_COUNT],
     len: usize,
+}
+
+impl<T: Clone + Copy> Clone for SegmentedList<T> {
+    fn clone(&self) -> Self {
+        let mut new_blocks: [Option<Box<[std::mem::MaybeUninit<T>]>>; BLOCK_COUNT] =
+            Default::default();
+        for i in 0..BLOCK_COUNT {
+            new_blocks[i] = self.blocks[i].as_ref().map(|b| b.clone());
+        }
+        Self {
+            blocks: new_blocks,
+            len: self.len.clone(),
+        }
+    }
 }
 
 impl<T> SegmentedList<T> {
@@ -28,7 +40,7 @@ impl<T> SegmentedList<T> {
 
     fn alloc_block(&mut self, block: usize) {
         let size = START_SIZE << block;
-        let mut v: Vec<MaybeUninit<T>> = Vec::with_capacity(size);
+        let mut v: Vec<std::mem::MaybeUninit<T>> = Vec::with_capacity(size);
         unsafe {
             v.set_len(size);
         }
@@ -63,7 +75,11 @@ impl<T> SegmentedList<T> {
             .map(|b| unsafe { b[block_index].assume_init_ref() })
     }
 
-    pub fn into_vec(mut self) -> Vec<T> {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn to_vec(mut self) -> Vec<T> {
         let mut result = Vec::with_capacity(self.len);
         let mut remaining = self.len;
 
@@ -116,9 +132,12 @@ impl<T> std::ops::Index<usize> for SegmentedList<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::alloc;
     use std::{cell::RefCell, rc::Rc};
 
-    use super::*;
+    #[global_allocator]
+    static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
 
     #[test]
     fn push_and_get_basic() {
@@ -143,7 +162,7 @@ mod tests {
             list.push(i);
         }
 
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         assert_eq!(vec.len(), 20);
         assert_eq!(vec, (0..20).collect::<Vec<_>>());
     }
@@ -176,14 +195,14 @@ mod tests {
             list.push(i);
         }
 
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         assert_eq!(vec, (0..(START_SIZE + 5)).collect::<Vec<_>>());
     }
 
     #[test]
     fn empty_list_into_vec() {
         let list: SegmentedList<i32> = SegmentedList::new();
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         assert!(vec.is_empty());
     }
 
@@ -200,7 +219,7 @@ mod tests {
             total += size;
             assert_eq!(list.len, total);
         }
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         assert_eq!(vec, (0..total).collect::<Vec<_>>());
     }
 
@@ -221,7 +240,7 @@ mod tests {
                 list.push(DropCounter(&counter));
             }
             // consuming the list should drop all elements exactly once
-            list.into_vec();
+            list.to_vec();
         }
         assert_eq!(*counter.borrow(), 50);
     }
@@ -234,7 +253,7 @@ mod tests {
             // reverse order for variety
             list.push(i * 3);
         }
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         for (idx, val) in vec.iter().enumerate() {
             assert_eq!(*val, (START_SIZE * 5 - 1 - idx) * 3);
         }
@@ -247,7 +266,7 @@ mod tests {
         for i in 0..count {
             list.push(i);
         }
-        let vec = list.into_vec();
+        let vec = list.to_vec();
         assert_eq!(vec.len(), count);
         assert_eq!(vec[count - 1], count - 1);
         assert_eq!(vec[0], 0);

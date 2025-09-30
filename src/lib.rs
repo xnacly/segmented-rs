@@ -7,4 +7,4 @@ pub mod alloc;
 /// Segmented list
 pub mod list;
 /// mmap via raw syscalls
-mod mmap;
+pub mod mmap;

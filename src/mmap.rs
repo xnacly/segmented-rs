@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-pub const MMAP_SYSCALL: i32 = 9;
-pub const MUNMAP_SYSCALL: i32 = 11;
+const MMAP_SYSCALL: i32 = 9;
+const MUNMAP_SYSCALL: i32 = 11;
 
 // Not an enum, since READ and WRITE arent mutually exclusive
 pub struct MmapProt(i32);
@@ -40,20 +40,20 @@ impl std::ops::BitOr for MmapFlags {
 
 #[inline(always)]
 pub fn mmap(
-    ptr: Option<*mut u8>,
+    ptr: Option<std::ptr::NonNull<u8>>,
     length: usize,
     prot: MmapProt,
     flags: MmapFlags,
     fd: i32,
     offset: i64,
-) -> *mut u8 {
+) -> std::ptr::NonNull<u8> {
     let ret: isize;
 
     unsafe {
         core::arch::asm!(
             "syscall",
             in("rax") MMAP_SYSCALL,
-            in("rdi") ptr.unwrap_or(std::ptr::null_mut()),
+            in("rdi") ptr.map(|nn| nn.as_ptr()).unwrap_or(std::ptr::null_mut()),
             in("rsi") length,
             in("rdx") prot.bits(),
             in("r10") flags.bits(),
@@ -64,20 +64,28 @@ pub fn mmap(
         );
     }
     if ret < 0 {
-        panic!("mmap syscall failed: errno={}", -ret);
+        eprintln!("mmap syscall failed: errno={}", -ret);
+        std::process::abort();
     }
-    ret as *mut u8
+    unsafe { std::ptr::NonNull::new_unchecked(ret as *mut u8) }
 }
 
 #[inline(always)]
-pub fn munmap(ptr: *mut u8, size: usize) {
+pub fn munmap(ptr: std::ptr::NonNull<u8>, size: usize) {
+    let ret: isize;
     unsafe {
         core::arch::asm!(
             "syscall",
-            in("rax") MMAP_SYSCALL,
-            in("rdi") ptr,
+            in("rax") MUNMAP_SYSCALL,
+            in("rdi") ptr.as_ptr(),
             in("rsi") size,
+            lateout("rax") ret,
             options(nostack)
         );
+    }
+
+    if ret < 0 {
+        eprintln!("munmap syscall failed: errno={}", -ret);
+        std::process::abort();
     }
 }
