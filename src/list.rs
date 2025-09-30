@@ -91,6 +91,12 @@ impl<T> SegmentedList<T> {
     }
 }
 
+impl<T> std::default::Default for SegmentedList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> std::ops::Index<usize> for SegmentedList<T> {
     type Output = T;
 

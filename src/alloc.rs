@@ -1,5 +1,7 @@
 use std::{alloc::GlobalAlloc, cell::RefCell};
 
+use crate::mmap::{self, mmap, munmap};
+
 const MIN_SIZE: usize = 4096;
 const MAX_BLOCKS: usize = 55;
 const GROWTH: usize = 2;
@@ -30,7 +32,15 @@ impl SegmentedAlloc {
         ctx.block_sizes[pos] = Some(new_size);
         ctx.blocks[pos] = Some(&mut u8::default());
         ctx.curblock += 1;
-        todo!("mmap")
+
+        mmap(
+            None,
+            new_size,
+            mmap::MmapProt::READ | mmap::MmapProt::WRITE,
+            mmap::MmapFlags::PRIVATE | mmap::MmapFlags::ANONYMOUS,
+            -1,
+            0,
+        );
     }
 
     fn request(&self, layout: std::alloc::Layout) -> *mut u8 {
@@ -61,15 +71,10 @@ impl Drop for SegmentedAlloc {
     fn drop(&mut self) {
         let ctx = self.ctx.borrow_mut();
         for i in 0..MAX_BLOCKS {
-            let Some(size) = ctx.block_sizes[i] else {
+            let (Some(size), Some(block)) = (ctx.block_sizes[i], ctx.blocks[i]) else {
                 break;
             };
-
-            let Some(block) = ctx.blocks[i] else {
-                break;
-            };
-
-            todo!("unmap")
+            munmap(block, size);
         }
     }
 }
@@ -79,7 +84,5 @@ unsafe impl GlobalAlloc for SegmentedAlloc {
         self.request(layout)
     }
 
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: std::alloc::Layout) {
-        ()
-    }
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: std::alloc::Layout) {}
 }
