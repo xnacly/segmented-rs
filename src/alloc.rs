@@ -132,3 +132,90 @@ unsafe impl GlobalAlloc for SegmentedAlloc {
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: std::alloc::Layout) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::alloc::{GlobalAlloc, Layout};
+
+    #[test]
+    fn alloc_min_size() {
+        let alloc = SegmentedAlloc::new();
+        unsafe {
+            let layout = Layout::from_size_align(8, 8).unwrap();
+            let ptr1 = alloc.alloc(layout);
+            assert!(!ptr1.is_null());
+            assert_eq!(ptr1 as usize % layout.align(), 0);
+        }
+    }
+
+    #[test]
+    fn alloc_multiple_blocks() {
+        let alloc = SegmentedAlloc::new();
+        unsafe {
+            let layout = Layout::from_size_align(4096, 8).unwrap();
+            let ptr1 = alloc.alloc(layout);
+            assert!(!ptr1.is_null());
+            for _ in 0..(MIN_SIZE / 8) {
+                alloc.alloc(Layout::from_size_align(8, 8).unwrap());
+            }
+            let ptr2 = alloc.alloc(Layout::from_size_align(8, 8).unwrap());
+            assert!(!ptr2.is_null());
+        }
+    }
+
+    #[test]
+    fn allocations_do_not_overlap() {
+        let alloc = SegmentedAlloc::new();
+        unsafe {
+            let layout = Layout::from_size_align(16, 8).unwrap();
+            let p1 = alloc.alloc(layout);
+            let p2 = alloc.alloc(layout);
+            assert!(p1 != p2);
+        }
+    }
+
+    #[test]
+    fn allocation_alignment_respected() {
+        let alloc = SegmentedAlloc::new();
+        unsafe {
+            let layout = Layout::from_size_align(32, 32).unwrap();
+            let p = alloc.alloc(layout);
+            assert_eq!(p as usize % 32, 0);
+        }
+    }
+
+    #[test]
+    fn stress_many_allocations() {
+        let alloc = SegmentedAlloc::new();
+        unsafe {
+            for size in [8usize, 16, 64, 128, 256, 1024, 2048] {
+                let layout = Layout::from_size_align(size, 8).unwrap();
+                for _ in 0..1000 {
+                    let _ = alloc.alloc(layout);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_a_gigabyte() {
+        use std::alloc::Layout;
+
+        let alloc = SegmentedAlloc::new();
+        let gig: usize = 1024 * 1024 * 1024;
+        let chunk: usize = 4096;
+        let layout = Layout::from_size_align(chunk, 8).unwrap();
+        let chunks = gig / chunk;
+
+        // TOUCHING :^) the whole gig so the kernel will allocate each byte
+        unsafe {
+            for i in 0..chunks {
+                let ptr = alloc.alloc(layout);
+                assert!(!ptr.is_null());
+                // Touch first byte so OS actually backs the page
+                std::ptr::write_bytes(ptr, (i % 255) as u8, 1);
+            }
+        }
+    }
+}
