@@ -295,11 +295,7 @@ impl<T> std::iter::FromIterator<T> for SegmentedList<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc;
     use std::{cell::RefCell, rc::Rc};
-
-    #[global_allocator]
-    static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
 
     #[test]
     fn push_and_get_basic() {
@@ -406,7 +402,7 @@ mod tests {
     #[test]
     fn exact_block_boundaries() {
         let mut list = SegmentedList::new();
-        let blocks_to_test = 3; // test first few blocks
+        let blocks_to_test = 3;
         let mut total = 0;
         for block_idx in 0..blocks_to_test {
             let size = START_SIZE << block_idx;

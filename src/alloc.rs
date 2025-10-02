@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::fmt::Display;
 use std::ptr::NonNull;
 
-use crate::mmap::{self, mmap};
+use crate::mmap::{self, mmap, munmap};
 
 const MIN_SIZE: usize = 4096;
 const MAX_BLOCKS: usize = 55;
@@ -12,7 +12,7 @@ const GROWTH: usize = 2;
 #[derive(Debug)]
 struct SegmentedAllocCtx {
     /// idx into self.blocks
-    curblock: usize,
+    cur_block: usize,
     /// size of the current block
     size: usize,
     /// bytes in use of the current block
@@ -25,7 +25,7 @@ impl SegmentedAllocCtx {
     const fn new() -> Self {
         SegmentedAllocCtx {
             size: MIN_SIZE,
-            curblock: 0,
+            cur_block: 0,
             pos: 0,
             blocks: [const { None }; MAX_BLOCKS],
             block_sizes: [const { None }; MAX_BLOCKS],
@@ -59,9 +59,6 @@ impl SegmentedAlloc {
 
     fn new_block(&self, ctx: &mut SegmentedAllocCtx) {
         ctx.size = ctx.size * GROWTH;
-        ctx.curblock += 1;
-        let cur_block = ctx.curblock;
-        ctx.block_sizes[cur_block] = Some(ctx.size);
         let block = mmap(
             None,
             ctx.size,
@@ -70,13 +67,16 @@ impl SegmentedAlloc {
             -1,
             0,
         );
-        ctx.blocks[cur_block] = Some(block);
-        // eprintln!("created new block at size {}", ctx.size);
+        ctx.cur_block += 1;
+        ctx.pos = 0;
+        ctx.blocks[ctx.cur_block] = Some(block);
+        ctx.block_sizes[ctx.cur_block] = Some(ctx.size);
     }
 
     fn request(&self, layout: std::alloc::Layout) -> NonNull<u8> {
-        // eprintln!("requesting {:?}", &layout);
         let mut ctx = unsafe { &mut *self.ctx.get() };
+        #[cfg(feature = "trace")]
+        dbg!(&layout);
 
         // this is equal to a separate SegmentedAlloc::new impl, but we can't do this in the
         // GlobalAlloc trait since theres only alloc and dealloc.
@@ -96,11 +96,19 @@ impl SegmentedAlloc {
         let offset = ctx.pos.next_multiple_of(layout.align());
         let padded_size = layout.pad_to_align().size();
 
+        #[cfg(feature = "trace")]
+        dbg!(ctx.blocks[ctx.cur_block], ctx.block_sizes[ctx.cur_block]);
+        #[cfg(feature = "trace")]
+        dbg!(offset, padded_size, offset + padded_size, ctx.size);
+
         if offset + padded_size > ctx.size {
             self.new_block(&mut ctx);
+            return self.request(layout);
         }
 
-        let Some(block) = ctx.blocks[ctx.curblock] else {
+        assert!(ctx.cur_block < MAX_BLOCKS);
+
+        let Some(block) = ctx.blocks[ctx.cur_block] else {
             eprintln!(
                 "Attempting to index not allocated block with {:?}, {}",
                 layout, self
@@ -113,24 +121,37 @@ impl SegmentedAlloc {
     }
 }
 
-// impl Drop for SegmentedAlloc {
-//     fn drop(&mut self) {
-//         let ctx = unsafe { &mut *self.ctx.get() };
-//         for i in 0..MAX_BLOCKS {
-//             let (Some(size), Some(block)) = (ctx.block_sizes[i], ctx.blocks[i]) else {
-//                 break;
-//             };
-//             munmap(block, size);
-//         }
-//     }
-// }
+impl Drop for SegmentedAlloc {
+    fn drop(&mut self) {
+        let ctx = unsafe { &mut *self.ctx.get() };
+        for i in 0..MAX_BLOCKS {
+            let (Some(size), Some(block)) = (ctx.block_sizes[i], ctx.blocks[i]) else {
+                break;
+            };
+            munmap(block, size);
+        }
+    }
+}
 
 unsafe impl GlobalAlloc for SegmentedAlloc {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        #[cfg(feature = "trace")]
+        eprintln!(
+            "[SegmentedAlloc] alloc size={}, align={}",
+            layout.size(),
+            layout.align()
+        );
         self.request(layout).as_ptr()
     }
 
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: std::alloc::Layout) {}
+    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: std::alloc::Layout) {
+        #[cfg(feature = "trace")]
+        eprintln!(
+            "[SegmentedAlloc] dealloc size={}, align={}",
+            _layout.size(),
+            _layout.align()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -209,6 +230,27 @@ mod tests {
         let chunks = gig / chunk;
 
         // TOUCHING :^) the whole gig so the kernel will allocate each byte
+        unsafe {
+            for i in 0..chunks {
+                let ptr = alloc.alloc(layout);
+                assert!(!ptr.is_null());
+                // Touch first byte so OS actually backs the page
+                std::ptr::write_bytes(ptr, (i % 255) as u8, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn allocate_ten_gigabyte() {
+        use std::alloc::Layout;
+
+        let alloc = SegmentedAlloc::new();
+        let gig: usize = 10 * 1024 * 1024 * 1024;
+        let chunk: usize = 4096;
+        let layout = Layout::from_size_align(chunk, 8).unwrap();
+        let chunks = gig / chunk;
+
+        // TOUCHING :^) the whole ten gig so the kernel will allocate each byte
         unsafe {
             for i in 0..chunks {
                 let ptr = alloc.alloc(layout);

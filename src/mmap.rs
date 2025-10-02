@@ -38,7 +38,6 @@ impl std::ops::BitOr for MmapFlags {
     }
 }
 
-#[inline(always)]
 pub fn mmap(
     ptr: Option<std::ptr::NonNull<u8>>,
     length: usize,
@@ -70,7 +69,6 @@ pub fn mmap(
     unsafe { std::ptr::NonNull::new_unchecked(ret as *mut u8) }
 }
 
-#[inline(always)]
 pub fn munmap(ptr: std::ptr::NonNull<u8>, size: usize) {
     let ret: isize;
     unsafe {

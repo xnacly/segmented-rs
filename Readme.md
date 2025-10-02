@@ -1,7 +1,8 @@
 # Segmented-rs
 
-Segmented-rs is a rusty port of a segmented list and bump allocator that was
-initially implemented in c, it's usage can be summarized as follows:
+Segmented-rs is a (zero dependency) rusty port of a segmented list and bump
+allocator that was initially implemented in c, it's usage can be summarized as
+follows:
 
 ```rust
 use segmented_rs::{alloc, list::SegmentedList};
@@ -41,6 +42,7 @@ fn main() {
 ## Features:
 
 - zero dependencies
+- fully tested
 - `alloc::SegmentedAlloc`: 
     - global not thread safe allocator
     - segmented bump allocator backed by mmap
