@@ -1,11 +1,11 @@
-use segmented_rs::list::SegmentedList;
+use segmented_rs::{alloc, list::SegmentedList};
 
-// #[global_allocator]
-// static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
+#[global_allocator]
+static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
 
 fn main() {
     let mut list = SegmentedList::new();
-    let count = 8 * 1000 * 1000;
+    let count = 64 * 1000 * 1000;
     for i in 0..count {
         list.push(i);
     }

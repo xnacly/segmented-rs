@@ -294,8 +294,13 @@ impl<T> std::iter::FromIterator<T> for SegmentedList<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::alloc;
+
     use super::*;
     use std::{cell::RefCell, rc::Rc};
+
+    #[global_allocator]
+    static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
 
     #[test]
     fn push_and_get_basic() {

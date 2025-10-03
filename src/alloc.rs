@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::fmt::Display;
 use std::ptr::NonNull;
 
-use crate::mmap::{self, mmap, munmap};
+use crate::mmap::{self, mmap};
 
 const MIN_SIZE: usize = 4096;
 const MAX_BLOCKS: usize = 55;
@@ -18,7 +18,7 @@ struct SegmentedAllocCtx {
     /// bytes in use of the current block
     pos: usize,
     blocks: [Option<NonNull<u8>>; MAX_BLOCKS],
-    block_sizes: [Option<usize>; MAX_BLOCKS],
+    block_sizes: [usize; MAX_BLOCKS],
 }
 
 impl SegmentedAllocCtx {
@@ -28,7 +28,7 @@ impl SegmentedAllocCtx {
             cur_block: 0,
             pos: 0,
             blocks: [const { None }; MAX_BLOCKS],
-            block_sizes: [const { None }; MAX_BLOCKS],
+            block_sizes: [0; MAX_BLOCKS],
         }
     }
 }
@@ -57,31 +57,10 @@ impl SegmentedAlloc {
         }
     }
 
-    fn new_block(&self, ctx: &mut SegmentedAllocCtx) {
-        ctx.size = ctx.size * GROWTH;
-        let block = mmap(
-            None,
-            ctx.size,
-            mmap::MmapProt::READ | mmap::MmapProt::WRITE,
-            mmap::MmapFlags::PRIVATE | mmap::MmapFlags::ANONYMOUS,
-            -1,
-            0,
-        );
-        ctx.cur_block += 1;
-        ctx.pos = 0;
-        ctx.blocks[ctx.cur_block] = Some(block);
-        ctx.block_sizes[ctx.cur_block] = Some(ctx.size);
-    }
-
     fn request(&self, layout: std::alloc::Layout) -> NonNull<u8> {
-        let mut ctx = unsafe { &mut *self.ctx.get() };
-        #[cfg(feature = "trace")]
-        dbg!(&layout);
-
-        // this is equal to a separate SegmentedAlloc::new impl, but we can't do this in the
-        // GlobalAlloc trait since theres only alloc and dealloc.
+        let ctx = unsafe { &mut *self.ctx.get() };
         if ctx.blocks[0].is_none() {
-            ctx.block_sizes[0] = Some(MIN_SIZE);
+            ctx.block_sizes[0] = MIN_SIZE;
             let block = mmap(
                 None,
                 MIN_SIZE,
@@ -93,45 +72,73 @@ impl SegmentedAlloc {
             ctx.blocks[0] = Some(block);
         }
 
-        let offset = ctx.pos.next_multiple_of(layout.align());
-        let padded_size = layout.pad_to_align().size();
+        loop {
+            let offset = ctx.pos.next_multiple_of(layout.align());
+            let padded_size = layout.pad_to_align().size();
 
-        #[cfg(feature = "trace")]
-        dbg!(ctx.blocks[ctx.cur_block], ctx.block_sizes[ctx.cur_block]);
-        #[cfg(feature = "trace")]
-        dbg!(offset, padded_size, offset + padded_size, ctx.size);
+            let end = offset
+                .checked_add(padded_size)
+                .expect("Allocation size overflow");
 
-        if offset + padded_size > ctx.size {
-            self.new_block(&mut ctx);
-            return self.request(layout);
+            if end > ctx.size {
+                assert!(ctx.cur_block + 1 < MAX_BLOCKS, "Exceeded MAX_BLOCKS");
+                let new_size = ctx.size * GROWTH;
+                let block = mmap(
+                    None,
+                    new_size,
+                    mmap::MmapProt::READ | mmap::MmapProt::WRITE,
+                    mmap::MmapFlags::PRIVATE | mmap::MmapFlags::ANONYMOUS,
+                    -1,
+                    0,
+                );
+                ctx.cur_block += 1;
+                ctx.blocks[ctx.cur_block] = Some(block);
+                ctx.block_sizes[ctx.cur_block] = new_size;
+                ctx.size = new_size;
+                ctx.pos = 0;
+                continue;
+            }
+
+            let block = ctx.blocks[ctx.cur_block].expect("Current block is None while allocating");
+
+            let ptr = unsafe { block.as_ptr().add(offset) };
+            ctx.pos = end;
+            return NonNull::new(ptr).expect("failed to create nonnull");
         }
-
-        assert!(ctx.cur_block < MAX_BLOCKS);
-
-        let Some(block) = ctx.blocks[ctx.cur_block] else {
-            eprintln!(
-                "Attempting to index not allocated block with {:?}, {}",
-                layout, self
-            );
-            std::process::abort();
-        };
-        let ptr = unsafe { block.add(offset) };
-        ctx.pos = offset + padded_size;
-        ptr
     }
 }
 
+/*
 impl Drop for SegmentedAlloc {
     fn drop(&mut self) {
         let ctx = unsafe { &mut *self.ctx.get() };
         for i in 0..MAX_BLOCKS {
-            let (Some(size), Some(block)) = (ctx.block_sizes[i], ctx.blocks[i]) else {
+            let size = ctx.block_sizes[i];
+            if size == 0 {
+                break;
+            }
+
+            let Some(block) = ctx.blocks[i] else {
                 break;
             };
             munmap(block, size);
         }
     }
 }
+*/
+
+// TODO: when used as global alloc results in segfaults, i have no clue why, but it seems to touch
+// memory that is no longer valid; but only in release mode (-C debug-assertions removes the
+// fault):
+//
+// fish: Job 1, 'cargo run --release' terminated by signal SIGSEGV (Address boundary error)
+//
+// Program received signal SIGSEGV, Segmentation fault.
+// 0x0000555555569c7b in <segmented_rs::alloc::SegmentedAlloc as core::alloc::global::GlobalAlloc>::alloc ()
+// (gdb) bt
+// #0  0x0000555555569c7b in <segmented_rs::alloc::SegmentedAlloc as core::alloc::global::GlobalAlloc>::alloc ()
+// #1  0x0000555555585f11 in std::rt::lang_start_internal ()
+// #2  0x0000555555569bf5 in main ()
 
 unsafe impl GlobalAlloc for SegmentedAlloc {
     unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
