@@ -15,34 +15,50 @@ fn bench_segmented_list_push(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-}
 
-fn bench_segmented_list_traverse(c: &mut Criterion) {
-    let count = 100_000;
-    c.bench_function("segmented_list_traverse", |b| {
+    c.bench_function("segmented_list_push_heavy", |b| {
+        #[allow(unused)]
+        #[derive(Clone)]
+        struct HeavyElem([u8; 1024]);
         b.iter_batched(
-            || {
-                let mut l = SegmentedList::new();
-                for i in 0..count {
-                    l.push(i);
+            || SegmentedList::new(),
+            |mut list| {
+                let heavy_template = HeavyElem([42; 1024]);
+                for _ in 0..count {
+                    list.push(black_box(heavy_template.clone()));
                 }
-                l
-            },
-            |list| {
-                let mut sum = 0;
-                for idx in 0..list.len() {
-                    sum += *list.get(idx).unwrap();
-                }
-                black_box(sum);
             },
             BatchSize::SmallInput,
         )
     });
 }
 
+// fn bench_segmented_list_traverse(c: &mut Criterion) {
+//     let count = 100_000;
+//     c.bench_function("segmented_list_traverse", |b| {
+//         b.iter_batched(
+//             || {
+//                 let mut l = SegmentedList::new();
+//                 for i in 0..count {
+//                     l.push(i);
+//                 }
+//                 l
+//             },
+//             |list| {
+//                 let mut sum = 0;
+//                 for idx in 0..list.len() {
+//                     sum += *list.get(idx).unwrap();
+//                 }
+//                 black_box(sum);
+//             },
+//             BatchSize::SmallInput,
+//         )
+//     });
+// }
+
 criterion_group!(
     benches,
     bench_segmented_list_push,
-    bench_segmented_list_traverse
+    // bench_segmented_list_traverse
 );
 criterion_main!(benches);

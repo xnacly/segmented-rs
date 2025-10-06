@@ -13,30 +13,50 @@ fn bench_vec_push(c: &mut Criterion) {
             BatchSize::SmallInput,
         )
     });
-}
 
-fn bench_vec_traverse(c: &mut Criterion) {
-    let count = 100_000;
-    c.bench_function("vec_traverse", |b| {
+    c.bench_function("vec_push_heavy", |b| {
+        #[allow(unused)]
+        #[derive(Clone)]
+        struct HeavyElem([u8; 1024]);
         b.iter_batched(
-            || {
-                let mut v = Vec::new();
-                for i in 0..count {
-                    v.push(i);
+            || Vec::new(),
+            |mut list| {
+                let heavy_template = HeavyElem([42; 1024]);
+                for _ in 0..count {
+                    list.push(black_box(heavy_template.clone()));
                 }
-                v
-            },
-            |v| {
-                let mut sum = 0;
-                for x in &v {
-                    sum += black_box(*x);
-                }
-                black_box(sum);
             },
             BatchSize::SmallInput,
         )
     });
 }
 
-criterion_group!(benches, bench_vec_push, bench_vec_traverse);
+// fn bench_vec_traverse(c: &mut Criterion) {
+//     let count = 100_000;
+//     c.bench_function("vec_traverse", |b| {
+//         b.iter_batched(
+//             || {
+//                 let mut v = Vec::new();
+//                 for i in 0..count {
+//                     v.push(i);
+//                 }
+//                 v
+//             },
+//             |v| {
+//                 let mut sum = 0;
+//                 for x in &v {
+//                     sum += black_box(*x);
+//                 }
+//                 black_box(sum);
+//             },
+//             BatchSize::SmallInput,
+//         )
+//     });
+// }
+
+criterion_group!(
+    benches,
+    bench_vec_push,
+    // bench_vec_traverse
+);
 criterion_main!(benches);

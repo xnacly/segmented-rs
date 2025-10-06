@@ -1,3 +1,8 @@
+use std::{
+    alloc::Layout,
+    mem::{self, MaybeUninit},
+};
+
 use crate::alloc::SegmentedAlloc;
 
 const BLOCK_COUNT: usize = 24;
@@ -32,10 +37,42 @@ pub struct SegmentedList<T> {
 }
 
 impl<T> Drop for SegmentedList<T> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+        self.allocator.free()
+    }
 }
 
 impl<T> SegmentedList<T> {
+    pub fn new() -> Self {
+        let mut s = Self {
+            blocks: std::array::from_fn(|_| None),
+            block_lengths: [0; BLOCK_COUNT],
+            allocator: SegmentedAlloc::new(),
+            len: 0,
+        };
+
+        let element_count = START_SIZE;
+        let as_bytes = element_count * size_of::<T>();
+        let ptr = s
+            .allocator
+            .request(Layout::from_size_align(as_bytes, align_of::<T>()).unwrap())
+            .as_ptr() as *mut MaybeUninit<T>;
+
+        s.blocks[0] = Some(ptr);
+        s.block_lengths[0] = element_count;
+        s
+    }
+
+    /// Computes the SegmentedIdx for idx, block refers to the block inside of Self storing
+    /// the value for the idx, block_idx is the index into said block
+    pub fn compute_segmented_idx(&self, idx: usize) -> Option<SegmentedIdx> {
+        if idx > self.len {
+            None
+        } else {
+            Some(self.idx_to_block_idx(idx))
+        }
+    }
+
     fn idx_to_block_idx(&self, idx: usize) -> SegmentedIdx {
         // we are in the size of the first block, no computation necessary
         if idx < START_SIZE {
@@ -61,30 +98,10 @@ impl<T> SegmentedList<T> {
             .expect("Invalid layout for SegmentedList block");
 
         let ptr = self.allocator.request(layout).as_ptr() as *mut MaybeUninit<T>;
-        assert!(!ptr.is_null(), "SegmentedAlloc returned null");
+        debug_assert!(!ptr.is_null(), "SegmentedAlloc returned null");
 
         self.blocks[block] = Some(ptr);
         self.block_lengths[block] = elems;
-    }
-
-    /// Create zero allocation empty list
-    pub fn new() -> Self {
-        Self {
-            blocks: std::array::from_fn(|_| None),
-            block_lengths: [0; BLOCK_COUNT],
-            allocator: SegmentedAlloc::new(),
-            len: 0,
-        }
-    }
-
-    /// Computes the SegmentedIdx for idx, block refers to the block inside of Self storing
-    /// the value for the idx, block_idx is the index into said block
-    pub fn compute_segmented_idx(&self, idx: usize) -> Option<SegmentedIdx> {
-        if idx > self.len {
-            None
-        } else {
-            Some(self.idx_to_block_idx(idx))
-        }
     }
 
     pub fn push(&mut self, v: T) {

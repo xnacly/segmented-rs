@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::fmt::Display;
 use std::ptr::NonNull;
 
-use crate::mmap::{self, mmap};
+use crate::mmap::{self, mmap, munmap};
 
 const MIN_SIZE: usize = 4096;
 const MAX_BLOCKS: usize = 55;
@@ -99,7 +99,7 @@ impl SegmentedAlloc {
                 .checked_add(layout.size())
                 .expect("Allocation size overflow");
 
-            if end_offset > block_capacity || end_offset == block_capacity {
+            if end_offset >= block_capacity {
                 assert!(ctx.cur_block + 1 < MAX_BLOCKS, "Exceeded MAX_BLOCKS");
                 let new_size = ctx.size * GROWTH;
                 ctx.cur_block += 1;
@@ -132,22 +132,26 @@ impl SegmentedAlloc {
                 .expect("Failed to create NonNull from allocation pointer");
         }
     }
+
+    pub fn free(&mut self) {
+        let ctx = unsafe { &mut *self.ctx.get() };
+        for i in 0..MAX_BLOCKS {
+            let size = ctx.block_sizes[i];
+            if size == 0 {
+                break;
+            }
+
+            let Some(block) = ctx.blocks[i] else {
+                break;
+            };
+            munmap(block, size);
+        }
+    }
 }
 
 impl Drop for SegmentedAlloc {
     fn drop(&mut self) {
-        // let ctx = unsafe { &mut *self.ctx.get() };
-        // for i in 0..MAX_BLOCKS {
-        //     let size = ctx.block_sizes[i];
-        //     if size == 0 {
-        //         break;
-        //     }
-
-        //     let Some(block) = ctx.blocks[i] else {
-        //         break;
-        //     };
-        //     munmap(block, size);
-        // }
+        self.free();
     }
 }
 

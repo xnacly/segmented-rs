@@ -59,11 +59,11 @@ pub fn mmap(
             in("r8")  fd,
             in("r9")  offset,
             lateout("rax") ret,
-            options(nostack)
+            options(nostack, preserves_flags, readonly)
         );
     }
     if ret < 0 {
-        let errno = -ret; // kernel returns -ERRNO
+        let errno = -ret;
         eprintln!(
             "mmap failed (errno {}): {}",
             errno,
@@ -72,11 +72,6 @@ pub fn mmap(
         std::process::abort()
     }
 
-    assert_eq!(
-        ret as usize % 4096,
-        0,
-        "mmap returned non-page-aligned addr"
-    );
     unsafe { std::ptr::NonNull::new_unchecked(ret as *mut u8) }
 }
 
@@ -89,12 +84,17 @@ pub fn munmap(ptr: std::ptr::NonNull<u8>, size: usize) {
             in("rdi") ptr.as_ptr(),
             in("rsi") size,
             lateout("rax") ret,
-            options(nostack)
+            options(nostack, preserves_flags, readonly)
         );
     }
 
     if ret < 0 {
-        eprintln!("munmap syscall failed: errno={}", -ret);
-        std::process::abort();
+        let errno = -ret;
+        eprintln!(
+            "munmap failed (errno {}): {}",
+            errno,
+            std::io::Error::from_raw_os_error(errno as i32)
+        );
+        std::process::abort()
     }
 }
