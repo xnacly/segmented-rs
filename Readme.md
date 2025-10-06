@@ -7,9 +7,6 @@ follows:
 ```rust
 use segmented_rs::{alloc, list::SegmentedList};
 
-#[global_allocator]
-static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
-
 fn main() {
     let mut list = SegmentedList::new();
     let count = 8 * 1000 * 1000;
@@ -44,7 +41,7 @@ fn main() {
 - zero dependencies
 - fully tested
 - `alloc::SegmentedAlloc`: 
-    - global not thread safe allocator
+    - not thread safe allocator specifically for `list::SegmentedList`
     - segmented bump allocator backed by mmap
     - no drop, no dealloc
 - `list::SegmentedList<T>`:

@@ -63,9 +63,20 @@ pub fn mmap(
         );
     }
     if ret < 0 {
-        eprintln!("mmap syscall failed: errno={}", -ret);
-        std::process::abort();
+        let errno = -ret; // kernel returns -ERRNO
+        eprintln!(
+            "mmap failed (errno {}): {}",
+            errno,
+            std::io::Error::from_raw_os_error(errno as i32)
+        );
+        std::process::abort()
     }
+
+    assert_eq!(
+        ret as usize % 4096,
+        0,
+        "mmap returned non-page-aligned addr"
+    );
     unsafe { std::ptr::NonNull::new_unchecked(ret as *mut u8) }
 }
 

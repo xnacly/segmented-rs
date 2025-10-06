@@ -1,7 +1,7 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 
 fn bench_vec_push(c: &mut Criterion) {
-    let count = 1_000_000;
+    let count = 100_000;
     c.bench_function("vec_push", |b| {
         b.iter_batched(
             || Vec::new(),
@@ -16,7 +16,7 @@ fn bench_vec_push(c: &mut Criterion) {
 }
 
 fn bench_vec_traverse(c: &mut Criterion) {
-    let count = 1_000_000;
+    let count = 100_000;
     c.bench_function("vec_traverse", |b| {
         b.iter_batched(
             || {

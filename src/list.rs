@@ -1,3 +1,5 @@
+use crate::alloc::SegmentedAlloc;
+
 const BLOCK_COUNT: usize = 24;
 const START_SIZE: usize = 8;
 const LOG2_OF_START_SIZE: usize = 3;
@@ -23,9 +25,14 @@ pub struct SegmentedIdx(usize, usize);
 /// This makes the SegmentedList an adequate replacement for `std::vec::Vec` when dealing with
 /// heavy and unpredictable growth workloads due the omission of copy/move overhead on expansion.
 pub struct SegmentedList<T> {
-    /// blocks grow by two on each newly allocated block, up until BLOCK_COUNT or something
-    blocks: [Option<Box<[std::mem::MaybeUninit<T>]>>; BLOCK_COUNT],
+    blocks: [Option<*mut std::mem::MaybeUninit<T>>; BLOCK_COUNT],
+    block_lengths: [usize; BLOCK_COUNT],
+    allocator: SegmentedAlloc,
     len: usize,
+}
+
+impl<T> Drop for SegmentedList<T> {
+    fn drop(&mut self) {}
 }
 
 impl<T> SegmentedList<T> {
@@ -45,18 +52,27 @@ impl<T> SegmentedList<T> {
     }
 
     fn alloc_block(&mut self, block: usize) {
-        let size = START_SIZE << block;
-        let mut v: Vec<std::mem::MaybeUninit<T>> = Vec::with_capacity(size);
-        unsafe {
-            v.set_len(size);
-        }
-        self.blocks[block] = Some(v.into_boxed_slice());
+        use std::alloc::Layout;
+        use std::mem::{MaybeUninit, align_of, size_of};
+
+        let elems = START_SIZE << block;
+        let bytes = elems * size_of::<T>();
+        let layout = Layout::from_size_align(bytes, align_of::<T>())
+            .expect("Invalid layout for SegmentedList block");
+
+        let ptr = self.allocator.request(layout).as_ptr() as *mut MaybeUninit<T>;
+        assert!(!ptr.is_null(), "SegmentedAlloc returned null");
+
+        self.blocks[block] = Some(ptr);
+        self.block_lengths[block] = elems;
     }
 
     /// Create zero allocation empty list
     pub fn new() -> Self {
         Self {
             blocks: std::array::from_fn(|_| None),
+            block_lengths: [0; BLOCK_COUNT],
+            allocator: SegmentedAlloc::new(),
             len: 0,
         }
     }
@@ -71,54 +87,44 @@ impl<T> SegmentedList<T> {
         }
     }
 
-    /// Appends `v` at the end of `Self`
     pub fn push(&mut self, v: T) {
         let idx = self.len;
         let SegmentedIdx(block, block_index) = self.idx_to_block_idx(idx);
         if self.blocks[block].is_none() {
             self.alloc_block(block);
         }
-
-        self.blocks[block].as_mut().unwrap()[block_index].write(v);
+        unsafe {
+            (*self.blocks[block].unwrap().add(block_index)).write(v);
+        }
         self.len += 1;
     }
 
-    /// Uses precomputed `SegmentedIdx` to return a reference to the element at `idx`
-    pub fn get_with_segmented_idx(&self, idx: SegmentedIdx) -> Option<&T> {
-        let SegmentedIdx(block, block_index) = idx;
-        self.blocks[block]
-            .as_ref()
-            .map(|b| unsafe { b[block_index].assume_init_ref() })
-    }
-
-    /// Uses precomputed `SegmentedIdx` to return a mutable reference to the element at `idx`
-    pub fn get_mut_with_segmented_idx(&mut self, idx: SegmentedIdx) -> Option<&mut T> {
-        let SegmentedIdx(block, block_index) = idx;
-        self.blocks[block]
-            .as_mut()
-            .map(|b| unsafe { b[block_index].assume_init_mut() })
-    }
-
-    /// Returns a reference to the element at `idx`
     pub fn get(&self, idx: usize) -> Option<&T> {
         if idx >= self.len {
             return None;
         }
         let SegmentedIdx(block, block_index) = self.idx_to_block_idx(idx);
-        self.blocks[block]
-            .as_ref()
-            .map(|b| unsafe { b[block_index].assume_init_ref() })
+        self.blocks[block].map(|ptr| unsafe { (*ptr.add(block_index)).assume_init_ref() })
     }
 
-    /// Returns a mutable reference to the element at `idx`
     pub fn get_mut(&mut self, idx: usize) -> Option<&mut T> {
         if idx >= self.len {
             return None;
         }
         let SegmentedIdx(block, block_index) = self.idx_to_block_idx(idx);
-        self.blocks[block]
-            .as_mut()
-            .map(|b| unsafe { b[block_index].assume_init_mut() })
+        self.blocks[block].map(|ptr| unsafe { (*ptr.add(block_index)).assume_init_mut() })
+    }
+
+    /// Uses precomputed `SegmentedIdx` to return a reference to the element at `idx`
+    pub fn get_with_segmented_idx(&self, idx: SegmentedIdx) -> Option<&T> {
+        let SegmentedIdx(block, block_index) = idx;
+        self.blocks[block].map(|ptr| unsafe { (*ptr.add(block_index)).assume_init_ref() })
+    }
+
+    /// Uses precomputed `SegmentedIdx` to return a mutable reference to the element at `idx`
+    pub fn get_mut_with_segmented_idx(&mut self, idx: SegmentedIdx) -> Option<&mut T> {
+        let SegmentedIdx(block, block_index) = idx;
+        self.blocks[block].map(|ptr| unsafe { (*ptr.add(block_index)).assume_init_mut() })
     }
 
     /// Returns the length of self
@@ -135,34 +141,24 @@ impl<T> SegmentedList<T> {
             if remaining == 0 {
                 break;
             }
-
-            if let Some(block) = self.blocks[block_idx].take() {
-                let block_size = START_SIZE << block_idx;
-                let take = remaining.min(block_size);
-
+            if let Some(ptr) = self.blocks[block_idx] {
+                let take = remaining.min(self.block_lengths[block_idx]);
                 for i in 0..take {
-                    let value = unsafe { block[i].assume_init_read() };
+                    let value = unsafe { (*ptr.add(i)).assume_init_read() };
                     result.push(value);
                 }
-
                 remaining -= take;
+                // We "forget" the block, no dealloc, bump allocator manages memory
+                self.blocks[block_idx] = None;
             } else {
                 break;
             }
         }
-
         result
     }
 
     pub fn capacity(&self) -> usize {
-        let mut total = 0;
-        for block_idx in 0..BLOCK_COUNT {
-            let Some(block) = &self.blocks[block_idx] else {
-                break;
-            };
-            total += block.len()
-        }
-        total
+        self.block_lengths.iter().copied().sum()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -210,15 +206,15 @@ impl<T> SegmentedList<T> {
             if remaining == 0 {
                 break;
             }
-            let Some(block) = &mut self.blocks[block_idx] else {
+            if let Some(ptr) = self.blocks[block_idx] {
+                let take = remaining.min(self.block_lengths[block_idx]);
+                for i in 0..take {
+                    unsafe { (*ptr.add(i)).assume_init_drop() };
+                }
+                remaining -= take;
+            } else {
                 break;
-            };
-            let block_size = START_SIZE << block_idx;
-            let take = remaining.min(block_size);
-            for i in 0..take {
-                unsafe { block[i].assume_init_drop() };
             }
-            remaining -= take;
         }
         self.len = 0;
     }
@@ -243,7 +239,7 @@ impl<T> std::ops::Index<usize> for SegmentedList<T> {
 
         let SegmentedIdx(block, block_index) = self.idx_to_block_idx(idx);
         let block_ref = self.blocks[block].as_ref().unwrap();
-        unsafe { block_ref[block_index].assume_init_ref() }
+        unsafe { (*block_ref.add(block_index)).assume_init_ref() }
     }
 }
 
@@ -257,22 +253,36 @@ impl<T> std::ops::IndexMut<usize> for SegmentedList<T> {
         }
 
         let SegmentedIdx(block, block_index) = self.idx_to_block_idx(idx);
-        let block_ref = self.blocks[block].as_mut().unwrap();
-        unsafe { block_ref[block_index].assume_init_mut() }
+        let block_ref = self.blocks[block].as_ref().unwrap();
+        unsafe { (*block_ref.add(block_index)).assume_init_mut() }
     }
 }
 
 impl<T: Clone + Copy> Clone for SegmentedList<T> {
     fn clone(&self) -> Self {
-        let mut new_blocks: [Option<Box<[std::mem::MaybeUninit<T>]>>; BLOCK_COUNT] =
-            Default::default();
-        for i in 0..BLOCK_COUNT {
-            new_blocks[i] = self.blocks[i].as_ref().map(|b| b.clone());
+        let mut new_list = SegmentedList::new();
+        new_list.len = self.len;
+
+        for block_idx in 0..BLOCK_COUNT {
+            if let Some(src_ptr) = self.blocks[block_idx] {
+                let elems = self.block_lengths[block_idx];
+                if elems == 0 {
+                    continue;
+                }
+                new_list.alloc_block(block_idx);
+                let dst_ptr = new_list.blocks[block_idx].unwrap();
+
+                for i in 0..elems {
+                    unsafe {
+                        let val = (*src_ptr.add(i)).assume_init();
+                        (*dst_ptr.add(i)).write(val);
+                    }
+                }
+                new_list.block_lengths[block_idx] = elems;
+            }
         }
-        Self {
-            blocks: new_blocks,
-            len: self.len.clone(),
-        }
+
+        new_list
     }
 }
 

@@ -1,7 +1,4 @@
-use segmented_rs::{alloc, list::SegmentedList};
-
-#[global_allocator]
-static A: alloc::SegmentedAlloc = alloc::SegmentedAlloc::new();
+use segmented_rs::list::SegmentedList;
 
 fn main() {
     let mut list = SegmentedList::new();

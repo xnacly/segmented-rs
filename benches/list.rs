@@ -2,10 +2,7 @@ use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main
 use segmented_rs::list::SegmentedList;
 
 fn bench_segmented_list_push(c: &mut Criterion) {
-    let count = 1_000_000;
-
-    #[global_allocator]
-    static GLOBAL: segmented_rs::alloc::SegmentedAlloc = segmented_rs::alloc::SegmentedAlloc::new();
+    let count = 100_000;
 
     c.bench_function("segmented_list_push", |b| {
         b.iter_batched(
@@ -21,7 +18,7 @@ fn bench_segmented_list_push(c: &mut Criterion) {
 }
 
 fn bench_segmented_list_traverse(c: &mut Criterion) {
-    let count = 1_000_000;
+    let count = 100_000;
     c.bench_function("segmented_list_traverse", |b| {
         b.iter_batched(
             || {
