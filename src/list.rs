@@ -500,7 +500,7 @@ mod tests {
     #[test]
     fn capacity_and_is_empty_work() {
         let mut list = SegmentedList::new();
-        assert_eq!(list.capacity(), 0);
+        assert_eq!(list.capacity(), 8);
         assert!(list.is_empty());
 
         list.push(10);

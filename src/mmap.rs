@@ -1,14 +1,27 @@
 #![allow(dead_code)]
 
-const MMAP_SYSCALL: i32 = 9;
-const MUNMAP_SYSCALL: i32 = 11;
+//! constants taken from https://github.com/openbsd/src/blob/master/sys/sys/mman.h
+#[cfg(target_os = "openbsd")]
+const MMAP_SYSCALL: i64 = 197;
+#[cfg(target_os = "openbsd")]
+const MUNMAP_SYSCALL: i64 = 73;
 
-// Not an enum, since READ and WRITE arent mutually exclusive
+#[cfg(target_os = "linux")]
+const MMAP_SYSCALL: i64 = 9;
+#[cfg(target_os = "linux")]
+const MUNMAP_SYSCALL: i64 = 11;
+
+// Not an enum, since NONE, READ, WRITE and EXEC arent mutually exclusive
 pub struct MmapProt(i32);
-
 impl MmapProt {
-    pub const READ: MmapProt = MmapProt(0x1);
-    pub const WRITE: MmapProt = MmapProt(0x2);
+    /// no permissions
+    pub const NONE: MmapProt = MmapProt(0x00);
+    /// pages can be read
+    pub const READ: MmapProt = MmapProt(0x01);
+    /// pages can be written
+    pub const WRITE: MmapProt = MmapProt(0x02);
+    /// pages can be executed
+    pub const EXEC: MmapProt = MmapProt(0x04);
     pub fn bits(self) -> i32 {
         self.0
     }
@@ -24,8 +37,35 @@ impl std::ops::BitOr for MmapProt {
 pub struct MmapFlags(i32);
 
 impl MmapFlags {
-    pub const PRIVATE: MmapFlags = MmapFlags(0x02);
+    /// share changes
+    pub const SHARED: MmapFlags = MmapFlags(0x0001);
+    /// changes are private
+    pub const PRIVATE: MmapFlags = MmapFlags(0x0002);
+    /// map addr must be exactly as requested
+    pub const FIXED: MmapFlags = MmapFlags(0x0010);
+
+    /// fail if address not available
+    #[cfg(target_os = "openbsd")]
+    pub const NOREPLACE: MmapFlags = MmapFlags(0x0800); // __MAP_NOREPLACE
+    #[cfg(target_os = "linux")]
+    pub const NOREPLACE: MmapFlags = MmapFlags(0x100000); // MAP_FIXED_NOREPLACE (Linux ≥ 5.4)
+
+    /// allocated from memory, swap space
+    #[cfg(target_os = "openbsd")]
+    pub const ANONYMOUS: MmapFlags = MmapFlags(0x1000);
+    /// allocated from memory, swap space
+    #[cfg(target_os = "linux")]
     pub const ANONYMOUS: MmapFlags = MmapFlags(0x20);
+
+    /// mapping is used for stack
+    pub const STACK: MmapFlags = MmapFlags(0x4000);
+
+    /// omit from dumps
+    pub const CONCEAL: MmapFlags = MmapFlags(0x8000);
+
+    // OpenBSD-only: avoid faulting in pages initially
+    #[cfg(target_os = "openbsd")]
+    pub const NOFAULT: MmapFlags = MmapFlags(0x2000);
     pub fn bits(self) -> i32 {
         self.0
     }
