@@ -78,6 +78,7 @@ impl std::ops::BitOr for MmapFlags {
     }
 }
 
+#[inline(always)]
 pub fn mmap(
     ptr: Option<std::ptr::NonNull<u8>>,
     length: usize,
@@ -99,7 +100,8 @@ pub fn mmap(
             in("r8")  fd,
             in("r9")  offset,
             lateout("rax") ret,
-            options(nostack, preserves_flags, readonly)
+            clobber_abi("sysv64"),
+            options(nostack)
         );
     }
     if ret < 0 {
@@ -115,6 +117,7 @@ pub fn mmap(
     unsafe { std::ptr::NonNull::new_unchecked(ret as *mut u8) }
 }
 
+#[inline(always)]
 pub fn munmap(ptr: std::ptr::NonNull<u8>, size: usize) {
     let ret: isize;
     unsafe {
@@ -124,7 +127,8 @@ pub fn munmap(ptr: std::ptr::NonNull<u8>, size: usize) {
             in("rdi") ptr.as_ptr(),
             in("rsi") size,
             lateout("rax") ret,
-            options(nostack, preserves_flags, readonly)
+            clobber_abi("sysv64"),
+            options(nostack)
         );
     }
 

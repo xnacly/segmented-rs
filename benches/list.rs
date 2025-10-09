@@ -1,64 +1,45 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 use segmented_rs::list::SegmentedList;
 
-fn bench_segmented_list_push(c: &mut Criterion) {
-    let count = 100_000;
+pub fn bench_segmented_list(c: &mut Criterion) {
+    // helper: bench with a generic closure and element count
+    fn bench_push<T: Clone>(c: &mut Criterion, name: &str, template: T, count: usize) {
+        c.bench_function(name, |b| {
+            b.iter_batched(
+                || SegmentedList::new(),
+                |mut list| {
+                    for _ in 0..count {
+                        list.push(black_box(template.clone()));
+                    }
+                    black_box(list)
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
 
-    c.bench_function("segmented_list_push", |b| {
-        b.iter_batched(
-            || SegmentedList::new(),
-            |mut list| {
-                for i in 0..count {
-                    list.push(black_box(i));
-                }
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    bench_push(c, "segmented_list_push_u64", 123u64, 10_000);
 
-    c.bench_function("segmented_list_push_heavy", |b| {
-        #[allow(unused)]
-        #[derive(Clone)]
-        struct HeavyElem([u8; 1024]);
-        b.iter_batched(
-            || SegmentedList::new(),
-            |mut list| {
-                let heavy_template = HeavyElem([42; 1024]);
-                for _ in 0..count {
-                    list.push(black_box(heavy_template.clone()));
-                }
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    #[derive(Clone)]
+    struct MediumElem([u8; 40]);
+    bench_push(c, "segmented_list_push_medium", MediumElem([42; 40]), 1_000);
+
+    #[derive(Clone)]
+    struct HeavyElem(Box<[u8]>);
+    bench_push(
+        c,
+        "segmented_list_push_heavy_1MiB",
+        HeavyElem(vec![161u8; 1 * 1024 * 1024].into_boxed_slice()),
+        50, // 100 × 1 MiB = 100 MB total
+    );
+
+    bench_push(
+        c,
+        "segmented_list_push_very_heavy_10MiB",
+        HeavyElem(vec![171u8; 10 * 1024 * 1024].into_boxed_slice()),
+        10, // 10 × 10 MiB = 100 MB total
+    );
 }
 
-// fn bench_segmented_list_traverse(c: &mut Criterion) {
-//     let count = 100_000;
-//     c.bench_function("segmented_list_traverse", |b| {
-//         b.iter_batched(
-//             || {
-//                 let mut l = SegmentedList::new();
-//                 for i in 0..count {
-//                     l.push(i);
-//                 }
-//                 l
-//             },
-//             |list| {
-//                 let mut sum = 0;
-//                 for idx in 0..list.len() {
-//                     sum += *list.get(idx).unwrap();
-//                 }
-//                 black_box(sum);
-//             },
-//             BatchSize::SmallInput,
-//         )
-//     });
-// }
-
-criterion_group!(
-    benches,
-    bench_segmented_list_push,
-    // bench_segmented_list_traverse
-);
+criterion_group!(benches, bench_segmented_list);
 criterion_main!(benches);

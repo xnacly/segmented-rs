@@ -1,62 +1,44 @@
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
 
-fn bench_vec_push(c: &mut Criterion) {
-    let count = 100_000;
-    c.bench_function("vec_push", |b| {
-        b.iter_batched(
-            || Vec::new(),
-            |mut v| {
-                for i in 0..count {
-                    v.push(black_box(i));
-                }
-            },
-            BatchSize::SmallInput,
-        )
-    });
+pub fn bench_vec(c: &mut Criterion) {
+    // helper: bench with a generic closure and element count
+    fn bench_push<T: Clone>(c: &mut Criterion, name: &str, template: T, count: usize) {
+        c.bench_function(name, |b| {
+            b.iter_batched(
+                || Vec::new(),
+                |mut vec| {
+                    for _ in 0..count {
+                        vec.push(black_box(template.clone()));
+                    }
+                    black_box(vec)
+                },
+                BatchSize::SmallInput,
+            )
+        });
+    }
 
-    c.bench_function("vec_push_heavy", |b| {
-        #[allow(unused)]
-        #[derive(Clone)]
-        struct HeavyElem([u8; 1024]);
-        b.iter_batched(
-            || Vec::new(),
-            |mut list| {
-                let heavy_template = HeavyElem([42; 1024]);
-                for _ in 0..count {
-                    list.push(black_box(heavy_template.clone()));
-                }
-            },
-            BatchSize::SmallInput,
-        )
-    });
+    bench_push(c, "vec_push_u64", 123u64, 10_000);
+
+    #[derive(Clone)]
+    struct MediumElem([u8; 40]);
+    bench_push(c, "vec_push_medium", MediumElem([42; 40]), 1_000);
+
+    #[derive(Clone)]
+    struct HeavyElem(Box<[u8]>);
+    bench_push(
+        c,
+        "vec_push_heavy_1MiB",
+        HeavyElem(vec![161u8; 1 * 1024 * 1024].into_boxed_slice()),
+        50, // 100 × 1 MiB = 100 MB total
+    );
+
+    bench_push(
+        c,
+        "vec_push_very_heavy_10MiB",
+        HeavyElem(vec![171u8; 10 * 1024 * 1024].into_boxed_slice()),
+        10, // 10 × 10 MiB = 100 MB total
+    );
 }
 
-// fn bench_vec_traverse(c: &mut Criterion) {
-//     let count = 100_000;
-//     c.bench_function("vec_traverse", |b| {
-//         b.iter_batched(
-//             || {
-//                 let mut v = Vec::new();
-//                 for i in 0..count {
-//                     v.push(i);
-//                 }
-//                 v
-//             },
-//             |v| {
-//                 let mut sum = 0;
-//                 for x in &v {
-//                     sum += black_box(*x);
-//                 }
-//                 black_box(sum);
-//             },
-//             BatchSize::SmallInput,
-//         )
-//     });
-// }
-
-criterion_group!(
-    benches,
-    bench_vec_push,
-    // bench_vec_traverse
-);
+criterion_group!(benches, bench_vec);
 criterion_main!(benches);

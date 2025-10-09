@@ -117,7 +117,7 @@ impl SegmentedAlloc {
                 continue;
             }
 
-            let block_ptr = ctx.blocks[ctx.cur_block].expect("Current block pointer is None");
+            let block_ptr = ctx.blocks[ctx.cur_block].unwrap();
 
             let ptr_addr = unsafe { block_ptr.as_ptr().add(offset) };
             debug_assert!(
