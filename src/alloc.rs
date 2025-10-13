@@ -52,7 +52,6 @@ unsafe impl Sync for SegmentedAlloc {}
 
 #[inline(always)]
 fn align_up(val: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
     (val + align - 1) & !(align - 1)
 }
 
@@ -65,10 +64,6 @@ impl SegmentedAlloc {
 
     pub fn request(&self, layout: std::alloc::Layout) -> NonNull<u8> {
         assert!(layout.size() > 0, "Zero-size allocation is not allowed");
-        assert!(
-            layout.align().is_power_of_two(),
-            "Alignment must be power-of-two per GlobalAlloc contract"
-        );
 
         let ctx = unsafe { &mut *self.ctx.get() };
 

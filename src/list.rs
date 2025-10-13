@@ -1,10 +1,8 @@
-use std::{alloc::Layout, mem::MaybeUninit};
-
 use crate::alloc::SegmentedAlloc;
+use std::{alloc::Layout, mem::MaybeUninit};
 
 pub const BLOCK_COUNT: usize = 24;
 pub const START_SIZE: usize = 8;
-
 pub const BLOCK_STARTS: [usize; BLOCK_COUNT] = {
     let mut arr = [0usize; BLOCK_COUNT];
     let mut i = 0;
@@ -22,7 +20,7 @@ pub const BLOCK_STARTS: [usize; BLOCK_COUNT] = {
 /// Primary usecase is to cache the lookup of many idxes, thus omiting the lookup computation which
 /// can be too heavy in intensive workloads.
 #[derive(Copy, Clone)]
-pub struct SegmentedIdx(usize, usize);
+struct SegmentedIdx(usize, usize);
 
 /// SegmentedList is a drop in `std::vec::Vec` replacement providing zero cost growing and stable
 /// pointers even after grow with `::push`.
@@ -65,17 +63,6 @@ impl<T> SegmentedList<T> {
             .as_ptr() as *mut MaybeUninit<T>;
         s.block_lengths[0] = element_count;
         s
-    }
-
-    /// Computes the SegmentedIdx for idx, block refers to the block inside of Self storing
-    /// the value for the idx, block_idx is the index into said block
-    #[inline(always)]
-    pub fn compute_segmented_idx(&self, idx: usize) -> Option<SegmentedIdx> {
-        if idx > self.len {
-            None
-        } else {
-            Some(self.idx_to_block_idx(idx))
-        }
     }
 
     #[inline(always)]
@@ -134,13 +121,13 @@ impl<T> SegmentedList<T> {
     }
 
     /// Uses precomputed `SegmentedIdx` to return a reference to the element at `idx`
-    pub fn get_with_segmented_idx(&self, idx: SegmentedIdx) -> Option<&T> {
+    fn get_with_segmented_idx(&self, idx: SegmentedIdx) -> Option<&T> {
         let SegmentedIdx(block, block_index) = idx;
         Some(unsafe { (*self.blocks[block].add(block_index)).assume_init_ref() })
     }
 
     /// Uses precomputed `SegmentedIdx` to return a mutable reference to the element at `idx`
-    pub fn get_mut_with_segmented_idx(&mut self, idx: SegmentedIdx) -> Option<&mut T> {
+    fn get_mut_with_segmented_idx(&mut self, idx: SegmentedIdx) -> Option<&mut T> {
         let SegmentedIdx(block, block_index) = idx;
         Some(unsafe { (*self.blocks[block].add(block_index)).assume_init_mut() })
     }
