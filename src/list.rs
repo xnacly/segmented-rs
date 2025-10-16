@@ -37,6 +37,8 @@ pub struct SegmentedList<T> {
     blocks: [*mut std::mem::MaybeUninit<T>; BLOCK_COUNT],
     block_lengths: [usize; BLOCK_COUNT],
     allocator: SegmentedAlloc,
+    cur_block: usize,
+    offset_in_block: usize,
     len: usize,
 }
 
@@ -52,7 +54,9 @@ impl<T> SegmentedList<T> {
             blocks: [std::ptr::null_mut(); BLOCK_COUNT],
             block_lengths: [0; BLOCK_COUNT],
             allocator: SegmentedAlloc::new(),
+            cur_block: 0,
             len: 0,
+            offset_in_block: 0,
         };
 
         let element_count = START_SIZE;
@@ -94,14 +98,21 @@ impl<T> SegmentedList<T> {
     }
 
     pub fn push(&mut self, v: T) {
-        let SegmentedIdx(block, block_index) = self.idx_to_block_idx(self.len);
-        if self.block_lengths[block] == 0 {
-            self.alloc_block(block);
+        if self.block_lengths[self.cur_block] == 0 {
+            self.alloc_block(self.cur_block);
         }
+
         unsafe {
-            (*self.blocks[block].add(block_index)).write(v);
+            (*self.blocks[self.cur_block].add(self.offset_in_block)).write(v);
         }
+
         self.len += 1;
+        self.offset_in_block += 1;
+
+        if self.offset_in_block == self.block_lengths[self.cur_block] {
+            self.cur_block += 1;
+            self.offset_in_block = 0;
+        }
     }
 
     pub fn get(&self, idx: usize) -> Option<&T> {

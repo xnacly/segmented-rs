@@ -29,14 +29,21 @@ pub fn bench_vec(c: &mut Criterion) {
         c,
         "vec_push_heavy_1MiB",
         HeavyElem(vec![161u8; 1 * 1024 * 1024].into_boxed_slice()),
-        50, // 100 × 1 MiB = 100 MB total
+        10,
     );
 
     bench_push(
         c,
-        "vec_push_very_heavy_10MiB",
-        HeavyElem(vec![171u8; 10 * 1024 * 1024].into_boxed_slice()),
-        10, // 10 × 10 MiB = 100 MB total
+        "vec_push_heavy_10MiB",
+        HeavyElem(vec![161u8; 10 * 1024 * 1024].into_boxed_slice()),
+        1,
+    );
+
+    bench_push(
+        c,
+        "vec_push_heavy_50MiB",
+        HeavyElem(vec![161u8; 50 * 1024 * 1024].into_boxed_slice()),
+        1,
     );
 }
 
