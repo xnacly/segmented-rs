@@ -23,6 +23,11 @@ fn main() {
 }
 ```
 
+## Platform Support
+
+This crate only supports **x86** targets. It will fail to compile on other
+architectures.
+
 ## Features:
 
 - zero dependencies

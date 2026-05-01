@@ -1,10 +1,11 @@
 [package]
 name = "segmented-rs"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
-description = "A (zero dependency) rusty port of a segmented list and bump allocator that was initially implemented in c"
-license-file = "LICENSE"
+description = "A zero dependency, x86-only rusty port of a segmented list and bump allocator that was initially implemented in c"
+license = "MIT"
 repository = "https://github.com/xnacly/segmented-rs/"
+keywords = ["x86", "bump-allocator", "arena", "segmented-list"]
 
 [dev-dependencies]
 criterion = "0.5"
