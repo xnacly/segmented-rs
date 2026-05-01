@@ -1,7 +1,10 @@
 [package]
 name = "segmented-rs"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
+description = "A (zero dependency) rusty port of a segmented list and bump allocator that was initially implemented in c"
+license-file = "LICENSE"
+repository = "https://github.com/xnacly/segmented-rs/"
 
 [dev-dependencies]
 criterion = "0.5"
